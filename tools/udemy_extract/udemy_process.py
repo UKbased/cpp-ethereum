@@ -1030,13 +1030,18 @@ def cmd_frame_plan(a) -> None:
         lec = st.load(key)
         if lec.get("asset_type") != "Video" or lec.get("frames") is not None or lec.get("frames_error"):
             continue
-        t = times.get(str(lec.get("id")))
+        pending.append((key, lec, times.get(str(lec.get("id")))))
+    log(f"{len(pending)} video lectures still need frames")
+    pending = pending[: a.limit]
+    if a.batch and pending:
+        items = [{"id": lec["id"], **({"times": t} if t else {})} for _, lec, t in pending]
+        print(f"open: {pending[0][1].get('url')}")
+        print(f"udfBatch({json.dumps(items, separators=(',', ':'))}, {{interval:{a.interval}}})")
+        return
+    for key, lec, t in pending:
         call = (f"udfStart({{times:{json.dumps(t, separators=(',', ':'))}}})" if t
                 else f"udfStart({{interval:{a.interval}}})")
-        pending.append(f"{key}\t{lec.get('url')}\t{call}")
-    log(f"{len(pending)} video lectures still need frames")
-    for line in pending[: a.limit]:
-        print(line)
+        print(f"{key}\t{lec.get('url')}\t{call}")
 
 
 def cmd_frames(a) -> None:
@@ -1382,6 +1387,7 @@ def main(argv=None) -> None:
     fp.add_argument("course_dir")
     fp.add_argument("--interval", type=float, default=8.0)
     fp.add_argument("--limit", type=int, default=500)
+    fp.add_argument("--batch", action="store_true", help="print one udfBatch([...]) call for all pending lectures")
     fp.set_defaults(func=cmd_frame_plan)
 
     f = sub.add_parser("frames", help="store + OCR frames JSON files from udemy_frames.js")

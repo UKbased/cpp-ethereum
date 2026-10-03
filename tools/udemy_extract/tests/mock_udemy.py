@@ -273,8 +273,12 @@ class Handler(BaseHTTPRequestHandler):
         if p.startswith(f"/course/{SLUG}/learn/lecture/"):
             lid = p.rstrip("/").split("/")[-1]
             vid = lid if (self.root / "cdn" / "video" / f"{lid}.webm").exists() else "1001"
+            spa = "" if "nospa" in q else (  # like the real player: in-page navigation swaps the video
+                "<script>addEventListener('popstate',function(){var id=location.pathname.replace(/\\/$/,'')"
+                ".split('/').pop();var v=document.getElementById('v');document.title='Lecture '+id;"
+                "v.src='/cdn/video/'+(id==='1002'?'1002':'1001')+'.webm?lecture='+id;v.load();});</script>")
             page = (f"<!doctype html><title>Lecture {lid}</title><body><h1>Lecture {lid}</h1>"
-                    f"<video id=v src='/cdn/video/{vid}.webm' preload='auto' muted width=640></video></body>")
+                    f"<video id=v src='/cdn/video/{vid}.webm' preload='auto' muted width=640></video>{spa}</body>")
             data = page.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")

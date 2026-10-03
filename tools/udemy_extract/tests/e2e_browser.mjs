@@ -41,6 +41,18 @@ console.log('frames (times):', await page.evaluate(() => udfRun({ times: [3, 13,
 await page.goto(`${base}/course/test-trading-course/learn/lecture/1002`);
 await page.evaluate(code('udemy_frames.js'));
 console.log('frames 1002 (moving inset):', await page.evaluate(() => udfRun({ interval: 2 })));
+await page.goto(`${base}/course/test-trading-course/learn/lecture/1001`);
+await page.evaluate(code('udemy_frames.js'));
+console.log('batch start:', await page.evaluate(() => udfBatch([{ id: 1001 }, { id: 1002 }, { id: 1006, times: [3, 13, 23] }], { interval: 2 })));
+const batchDone = await poll(page, () => udfStatus().replace(/^batch running/, 'running'), 'batch', 240000);
+console.log('batch:', batchDone);
+if (!/^batch finished: saved 3\/3$/.test(batchDone)) throw new Error('batch did not save 3 lectures: ' + batchDone);
+await page.goto(`${base}/course/test-trading-course/learn/lecture/1001?nospa=1`);
+await page.evaluate(code('udemy_frames.js'));
+await page.evaluate(() => udfBatch([{ id: 1002 }, { id: 1006 }], { interval: 2 }));
+const batchFail = await poll(page, () => udfStatus().replace(/^batch running/, 'running'), 'batch-fail', 120000);
+console.log('batch without in-page navigation:', batchFail);
+if (!/^batch stopped: saved 0\/2.*navigation failed/.test(batchFail)) throw new Error('expected a clean stop: ' + batchFail);
 await new Promise((r) => setTimeout(r, 1500));
 console.log('saved:', JSON.stringify(saved.map((p) => path.basename(p))));
 await browser.close();

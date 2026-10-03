@@ -15,6 +15,12 @@
  *   udfStart({times: [3.5, 41, 97.2]})      // or only at given seconds (e.g. from sprite-times)
  *   udfStatus()                             // progress / summary
  *   udfSaveAgain()                          // re-trigger the last download
+ *   udfBatch([{id: 123, times: [...]}, {id: 124}], {interval: 8})
+ *       // whole course with one injection: moves between lectures inside the player (no page
+ *       // reload), captures each and saves one file per lecture. udfStatus() shows progress.
+ *       // If the player does not follow in-page navigation it stops with "navigation failed";
+ *       // then open lectures one by one instead (clicking in the course sidebar keeps the
+ *       // script loaded; check typeof udfStart after any full page load).
  * Options: interval (8), times, delta (1.0), lo (0.015), motion (0.02), motionGap (45),
  *          maxGap (120), maxWidth (1600), quality (0.85), maxFrames (300), download, restore
  * Each sample at time t is paired with a second sample at t + delta. Motion is judged per 8x8
@@ -29,6 +35,7 @@
   var VERSION = '1.0.0';
   var W = window;
   var S = (W.__udf = W.__udf || { status: 'idle' });
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
   var SW = 160, SH = 90, N = SW * SH, THR = 24, HIST = 6, BS = 8;
   var BW = Math.ceil(SW / BS), NB = BW * Math.ceil(SH / BS);
   var BLOCK = new Uint16Array(N);
@@ -115,6 +122,16 @@
   }
 
   function status() {
+    if (S.batch && S.batch.status === 'running') {
+      return 'batch running: lecture ' + (S.batch.done + S.batch.failed.length + 1) + '/' + S.batch.total +
+        ' (id ' + S.batch.current + ', ' + S.phase + ' ' + S.done + '/' + S.total + '), saved ' + S.batch.done +
+        ', failed ' + S.batch.failed.length;
+    }
+    if (S.batch && S.batch.status !== 'running') {
+      return 'batch ' + S.batch.status + ': saved ' + S.batch.done + '/' + S.batch.total +
+        (S.batch.failed.length ? ', failed ' + JSON.stringify(S.batch.failed.slice(0, 10)) : '') +
+        (S.batch.note ? ' - ' + S.batch.note : '');
+    }
     var secs = S.startedAt ? Math.round((Date.now() - S.startedAt) / 1000) : 0;
     if (S.status === 'running') return 'running: ' + S.phase + ' ' + S.done + '/' + S.total + ', kept ' + S.kept + ', ' + secs + 's';
     if (S.status === 'done') return 'done: saved ' + S.file + ' ' + JSON.stringify(S.summary);
@@ -238,9 +255,71 @@
     return status();
   }
 
+  // Move to another lecture inside the single-page player, without a page load.
+  async function gotoLecture(id) {
+    if (new RegExp('/lecture/' + id + '(/|$|[?#])').test(location.pathname + '/') && findVideo()) return true;
+    var prev = findVideo();
+    var prevSrc = prev ? prev.currentSrc : null;
+    var slug = (location.pathname.match(/\/course\/([^/]+)/) || [])[1];
+    if (!slug) return false;
+    history.pushState(history.state, '', '/course/' + slug + '/learn/lecture/' + id);
+    window.dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+    try {
+      await waitFor(function () {
+        var v = findVideo();
+        return v && v.currentSrc && v.currentSrc !== prevSrc ? v : null;
+      }, 30000);
+      await sleep(1500);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function batch(items, opts) {
+    S.batch = { status: 'running', total: items.length, done: 0, failed: [], current: null, note: '' };
+    S.status = 'idle';
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      S.batch.current = it.id;
+      var ok = await gotoLecture(it.id);
+      if (!ok) {
+        S.batch.failed.push({ id: it.id, error: 'navigation failed' });
+        if (S.batch.done === 0 && S.batch.failed.length >= 2) {
+          S.batch.status = 'stopped';
+          S.batch.note = 'the player does not follow in-page navigation; open lectures one by one instead';
+          return status();
+        }
+        continue;
+      }
+      var o = Object.assign({}, opts || {});
+      if (it.times && it.times.length) o.times = it.times;
+      await run(o);
+      if (S.status === 'done') {
+        S.batch.done += 1;
+      } else {
+        S.batch.failed.push({ id: it.id, error: S.error });
+        if (/DRM|cannot read video pixels/.test(S.error || '') && S.batch.done === 0) {
+          S.batch.status = 'stopped';
+          S.batch.note = 'in-page capture is blocked (' + S.error + ')';
+          return status();
+        }
+      }
+      await sleep(1500);
+    }
+    S.batch.status = 'finished';
+    return status();
+  }
+
+  W.udfBatch = function (items, opts) {
+    if (S.status === 'running' || (S.batch && S.batch.status === 'running')) return 'already running: ' + status();
+    batch(items || [], opts);
+    return 'batch started for ' + (items || []).length + ' lectures; poll udfStatus()';
+  };
   W.udfRun = run;
   W.udfStart = function (opts) {
-    if (S.status === 'running') return 'already running: ' + status();
+    if (S.status === 'running' || (S.batch && S.batch.status === 'running')) return 'already running: ' + status();
+    S.batch = null;
     run(opts);
     return 'started; poll udfStatus()';
   };
@@ -250,5 +329,5 @@
     save(S.last, S.file);
     return 'download triggered again: ' + S.file;
   };
-  return 'udemy_frames.js ' + VERSION + ' loaded: udfStart({interval:8} | {times:[...]}), udfStatus(), udfSaveAgain()';
+  return 'udemy_frames.js ' + VERSION + ' loaded: udfStart({interval:8} | {times:[...]}), udfBatch([{id,times}]), udfStatus(), udfSaveAgain()';
 })();

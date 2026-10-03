@@ -11,7 +11,7 @@ what the course player already shows you, through your own logged-in browser.
 | File | Runs where | Does |
 |---|---|---|
 | `udemy_manifest.js` | logged-in udemy.com tab | one JSON per course: curriculum, caption links, article text, resource links, quizzes |
-| `udemy_frames.js` | a lecture page | captures distinct frames (slides, sheets, charts) and saves them as one JSON per lecture |
+| `udemy_frames.js` | a lecture page | captures distinct frames (slides, sheets, charts) and saves them as one JSON per lecture; batch mode covers a whole course |
 | `udemy_process.py` | terminal | builds the course folder, extracts text, runs OCR, Whisper fallback, writes `course.md` |
 | `tests/` | dev only | mock Udemy server, Chromium end-to-end test, unit tests (`tests/run_tests.sh`) |
 
@@ -36,18 +36,25 @@ Tesseract and `pip install pytesseract`. Only lectures without captions need
 2. **Build, straight away.** The caption and resource links are signed and expire within
    hours.
    `python udemy_process.py build "%USERPROFILE%\Downloads\udemy_manifest_<id>_<slug>.json" --out <courses>\<id>_<slug>`
-3. **Frames for OCR.** `python udemy_process.py sprite-times <dir>` then
-   `python udemy_process.py frame-plan <dir>`. Each output line is a lecture URL and a
-   `udfStart(...)` call. For each one, open the URL in the tab and set the player quality to
-   the highest available (once is usually enough). Evaluate `udemy_frames.js` after every
-   page load, run the printed `udfStart(...)`, and poll `udfStatus()` until `done`.
-   - `frames are black` means the video is DRM-protected. `cannot read video pixels` means
-     the page will not expose them. Either run
+3. **Frames for OCR.** Run `python udemy_process.py sprite-times <dir>`, then
+   `python udemy_process.py frame-plan <dir> --batch`. Open the lecture URL it prints and set
+   the player quality to the highest available. Evaluate `udemy_frames.js` once, run the
+   printed `udfBatch([...])` call, and poll `udfStatus()` until it says `batch finished`.
+   The script moves between lectures inside the player and saves one
+   `frames_<slug>_<lecture>.json` per lecture to Downloads. If Chrome asks to allow multiple
+   downloads, allow it.
+   - **`navigation failed`:** the player did not follow in-page navigation. Run `frame-plan <dir>`
+     without `--batch` and do lectures one at a time with the printed `udfStart(...)` calls.
+     Move between lectures by clicking in the course sidebar so the script stays loaded.
+     `typeof udfStart` shows whether it is still loaded; evaluate it again only after a full
+     page load.
+   - **`frames are black` or `cannot read video pixels`:** the video is DRM-protected, or the
+     page will not expose its pixels. Either run
      `skip-frames <dir> --lecture <id> --reason "..."`, or use the screen fallback: play the
      lecture in a visible, unobstructed window and run
      `screen-capture <dir> --lecture <id> --seconds <n> --speed <player speed> [--bbox x1,y1,x2,y2]`.
-   - `low_res_warning: true` means the player served a small rendition. Raise the quality
-     and capture again.
+   - **`low_res_warning: true`:** the player served a small rendition. Raise the quality and
+     capture again.
 4. **OCR the frames.** `python udemy_process.py frames <dir> "%USERPROFILE%\Downloads\frames_*.json"`.
    This moves the JSON files into `<dir>\frames\_raw`.
 5. **Lectures without captions** (listed by `status`). If the course offers Udemy's own
