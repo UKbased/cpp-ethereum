@@ -1,0 +1,12 @@
+# udemy_process.py dependencies (Python 3.9+). Core text extraction uses only the standard library.
+pillow          # images, frames, sprite analysis, screen capture
+pypdf           # PDF text
+pypdfium2       # render image-only PDF pages for OCR
+openpyxl        # Excel .xlsx/.xlsm values and formulas
+rapidocr_onnxruntime ; python_version < "3.13"   # CPU OCR with bundled models
+rapidocr ; python_version >= "3.13"              # newer package name (downloads models on first use)
+onnxruntime ; python_version >= "3.13"
+# Optional:
+#   faster-whisper   transcripts for lectures that have no captions (CPU is fine; model small.en)
+#   pytesseract      alternative OCR (needs the Tesseract program installed)
+#   xlrd             old .xls workbooks
